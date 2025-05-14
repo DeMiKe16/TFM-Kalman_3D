@@ -40,7 +40,7 @@ def pose(K, image, model):
     return rms, M
 
 # Crear el aro
-def crear_aro(centro_x=-2.45, centro_y=-1.576, centro_z=3.05, radio=0.225, num_puntos=16):
+def crear_aro(centro_x=0, centro_y=12.425, centro_z=3.05, radio=0.225, num_puntos=16):
     """Crea puntos para representar un aro de baloncesto."""
     angulos = np.linspace(0, 2*np.pi, num_puntos, endpoint=False)
     x = centro_x + radio * np.cos(angulos)
@@ -54,9 +54,9 @@ def crear_aro(centro_x=-2.45, centro_y=-1.576, centro_z=3.05, radio=0.225, num_p
 # Simular múltiples trayectorias
 def simular_trayectorias(mu, P, num_parabolas=100, gravedad=-9.81, t=np.linspace(0, 1, 100)):
     # Generar trayectorias en un solo paso vectorizado
-    vx0 = np.random.normal(mu[3], np.sqrt(P[3, 3]), num_parabolas)  # Velocidades iniciales x
-    vy0 = np.random.normal(mu[4], np.sqrt(P[4, 4]), num_parabolas)  # Velocidades iniciales y
-    vz0 = np.random.normal(mu[5], np.sqrt(P[5, 5]), num_parabolas)  # Velocidades iniciales z
+    vx0 = np.random.normal(mu[3], np.sqrt(P[3, 3]/100), num_parabolas)  # Velocidades iniciales x
+    vy0 = np.random.normal(mu[4], np.sqrt(P[4, 4]/100), num_parabolas)  # Velocidades iniciales y
+    vz0 = np.random.normal(mu[5], np.sqrt(P[5, 5]/100), num_parabolas)  # Velocidades iniciales z
     
     # Simular trayectorias
     x_sim = mu[0] + vx0[:, None] * t  # Esto genera un array (num_parabolas, tiempo_sim)
@@ -145,40 +145,40 @@ def main():
 
     # Puntos del modelo en 3D
     referencias_real = np.array([
-        [-3.35, -1.2, 3.95],
-        [-1.55, -1.2, 3.95],
-        [-1.55, -1.2, 2.9],
-        [-3.35, -1.2, 2.9],
-        [5.05, 0, 0],
-        [4.15, 0, 0],
-        [0, 0, 0],
-        [0, -5.8, 0],
-        [-4.9, -5.8, 0],
-        [-4.9, 0, 0],
-        [-2.45, -5.8, 0],
-        [-2.45, -7.6, 0]
+        [-0.9, 12.8, 3.95],
+        [0.9, 12.8, 3.95],
+        [0.9, 12.8, 2.9],
+        [-0.9, 12.8, 2.9],
+        [7.5, 14, 0],
+        [6.6, 14, 0],
+        [2.45, 14, 0],
+        [2.45, 8.2, 0],
+        [-2.45, 8.2, 0],
+        [-2.45, 14, 0],
+        [0, 8.2, 0],
+        [0, 6.4, 0]
     ], dtype='float32')
 
     # Definir geometrías de la cancha
     canasta = np.array([
-        [-3.35, -1.2, 3.95],
-        [-1.55, -1.2, 3.95], 
-        [-1.55, -1.2, 2.9],
-        [-3.35, -1.2, 2.9],
-        [-3.35, -1.2, 3.95]
+        [-0.9, 12.8, 3.95],
+        [0.9, 12.8, 3.95],
+        [0.9, 12.8, 2.9],
+        [-0.9, 12.8, 2.9],
+        [-0.9, 12.8, 3.95]
     ], dtype='float32')
 
     fondo = np.array([
-        [5.05, 0, 0],
-        [-9.95, 0, 0]
+        [7.5, 14, 0],
+        [-7.5, 14, 0]
     ], dtype='float32')  
 
     cuadrado = np.array([
-        [0, 0, 0],
-        [0, -5.8, 0],
-        [-4.9, -5.8, 0],
-        [-4.9, 0, 0],
-        [0, 0, 0]
+        [2.45, 14, 0],
+        [2.45, 8.2, 0],
+        [-2.45, 8.2, 0],
+        [-2.45, 14, 0],
+        [2.45, 14, 0]
     ], dtype='float32')    
              
     # Calcular la pose solo al principio
@@ -187,8 +187,8 @@ def main():
     print(f"Matriz de transformación: \n{Me}")
     
     # Parámetros del aro
-    centro_x = -2.45
-    centro_y = -1.576
+    centro_x = 0
+    centro_y = 12.425
     centro_z = 3.05
     radio_aro = 0.225
 
@@ -272,12 +272,12 @@ def main():
         return 0
 
     # Estado inicial y covarianza
-    mu = np.array([-3, -6.2, 2, 0, 4, 4])  # Posición y velocidad inicial
-    P = np.diag([1, 1, 1, 1, 1, 1])**2  # Covarianza inicial
+    mu = np.array([0, 0, 0, 0, 0, 0])  # Posición y velocidad inicial [-2.45, -5.8, 2, 0, 4, 5] -> tiro libre
+    P = np.diag([1, 1, 1, 10, 10, 10])**2  # Covarianza inicial
 
     # Matrices de ruido
-    sigmaM = 0.00001  # Ruido del modelo
-    sigmaZ = 4       # Ruido de medición
+    sigmaM = 1e-3  # Ruido del modelo
+    sigmaZ = 3       # Ruido de medición
     Q = sigmaM**2 * np.eye(6)  # Covarianza del ruido del proceso
     R = sigmaZ**2 * np.eye(2)  # Covarianza del ruido de medición
 
@@ -289,9 +289,10 @@ def main():
     
     # Variables para el análisis de trayectorias
     calcular_probabilidad = True
-    max_probabilidad = 0
     probabilidad_mostrar = 0
     frame_counter = 0
+    
+    imagen = 0
 
     # Abrir el video
     video_path = "canasta_3D_acierto_tirolibre.mp4"
@@ -310,6 +311,10 @@ def main():
 
         center_x = None
         center_y = None
+        
+        if imagen == 86:  # 86 para acierto en tiro libre, 83 para fallo en tiro libre, 
+            impresion['print'] = True
+            state['kalman_active'] = True
 
         # Realizar tracking en el frame
         results = model.track(
@@ -365,8 +370,6 @@ def main():
             # Actualizar el filtro con o sin medición
             measurement = np.array([center_x, center_y]) if center_x is not None else None
             mu, P, pred = ukf(mu, P, f, Q, b, a, measurement, h, R)
-            print("------------------")
-            print(f"mu: {mu}")
             
             # Guardar resultados
             res.append((mu, P))
@@ -408,12 +411,8 @@ def main():
                 trayectorias_intersectadas = verificar_interseccion(x_sim, y_sim, z_sim, aro, radio_aro)
                 
                 probabilidad = len(trayectorias_intersectadas) / num_parabolas
-                
-                # Actualizar el máximo si la nueva probabilidad es mayor
-                if probabilidad > max_probabilidad:
-                    max_probabilidad = probabilidad
                     
-                probabilidad_mostrar = max_probabilidad
+                probabilidad_mostrar = probabilidad
                 
                 frame_counter += 1
             
@@ -460,6 +459,8 @@ def main():
         # Redibujar la figura y procesar eventos
         fig.canvas.draw_idle()
         fig.canvas.start_event_loop(0.001)
+        
+        imagen += 1
 
         # Salir si se presiona Escape
         if state['fin']:

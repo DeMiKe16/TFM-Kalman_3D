@@ -40,7 +40,7 @@ def pose(K, image, model):
     return rms, M
 
 # Crear el aro
-def crear_aro(centro_x=-2.45, centro_y=-1.576, centro_z=3.05, radio=0.225, num_puntos=16):
+def crear_aro(centro_x=0, centro_y=12.425, centro_z=3.05, radio=0.225, num_puntos=16):
     """Crea puntos para representar un aro de baloncesto."""
     angulos = np.linspace(0, 2*np.pi, num_puntos, endpoint=False)
     x = centro_x + radio * np.cos(angulos)
@@ -89,8 +89,8 @@ def main():
     
     # ---------------------- INICIALIZACIÓN -----------------------
     # Matriz de calibración
-    K = np.array([[1666, 0, 969], 
-                [0, 1666, 544], 
+    K = np.array([[1666, 0, 960], 
+                [0, 1666, 540], 
                 [0, 0, 1]])
 
     # Coordenadas de referencia en la imagen (en píxeles)
@@ -111,40 +111,40 @@ def main():
 
     # Puntos del modelo en 3D
     referencias_real = np.array([
-        [-3.35, -1.2, 3.95],
-        [-1.55, -1.2, 3.95],
-        [-1.55, -1.2, 2.9],
-        [-3.35, -1.2, 2.9],
-        [5.05, 0, 0],
-        [4.15, 0, 0],
-        [0, 0, 0],
-        [0, -5.8, 0],
-        [-4.9, -5.8, 0],
-        [-4.9, 0, 0],
-        [-2.45, -5.8, 0],
-        [-2.45, -7.6, 0]
+        [-0.9, 12.8, 3.95],
+        [0.9, 12.8, 3.95],
+        [0.9, 12.8, 2.9],
+        [-0.9, 12.8, 2.9],
+        [7.5, 14, 0],
+        [6.6, 14, 0],
+        [2.45, 14, 0],
+        [2.45, 8.2, 0],
+        [-2.45, 8.2, 0],
+        [-2.45, 14, 0],
+        [0, 8.2, 0],
+        [0, 6.4, 0]
     ], dtype='float32')
 
     # Definir geometrías de la cancha
     canasta = np.array([
-        [-3.35, -1.2, 3.95],
-        [-1.55, -1.2, 3.95], 
-        [-1.55, -1.2, 2.9],
-        [-3.35, -1.2, 2.9],
-        [-3.35, -1.2, 3.95]
+        [-0.9, 12.8, 3.95],
+        [0.9, 12.8, 3.95],
+        [0.9, 12.8, 2.9],
+        [-0.9, 12.8, 2.9],
+        [-0.9, 12.8, 3.95]
     ], dtype='float32')
 
     fondo = np.array([
-        [5.05, 0, 0],
-        [-9.95, 0, 0]
+        [7.5, 14, 0],
+        [-7.5, 14, 0]
     ], dtype='float32')  
 
     cuadrado = np.array([
-        [0, 0, 0],
-        [0, -5.8, 0],
-        [-4.9, -5.8, 0],
-        [-4.9, 0, 0],
-        [0, 0, 0]
+        [2.45, 14, 0],
+        [2.45, 8.2, 0],
+        [-2.45, 8.2, 0],
+        [-2.45, 14, 0],
+        [2.45, 14, 0]
     ], dtype='float32')    
              
     # Calcular la pose solo al principio
@@ -231,12 +231,12 @@ def main():
         return 0
 
     # Estado inicial y covarianza
-    mu = np.array([-6, -6.2, 2, 0, 4, 4])  # Posición y velocidad inicial
-    P = np.diag([1, 1, 1, 1, 1, 1])**2  # Covarianza inicial
+    mu = np.array([0, 0, 0, 0, 0, 0])  # Posición y velocidad inicial [-2.45, -5.8, 2, 0, 4, 5] -> tiro libre
+    P = np.diag([1, 1, 1, 10, 10, 10])**2  # Covarianza inicial
 
     # Matrices de ruido
-    sigmaM = 0.00001  # Ruido del modelo
-    sigmaZ = 4       # Ruido de medición
+    sigmaM = 1e-3  # Ruido del modelo
+    sigmaZ = 3       # Ruido de medición
     Q = sigmaM**2 * np.eye(6)  # Covarianza del ruido del proceso
     R = sigmaZ**2 * np.eye(2)  # Covarianza del ruido de medición
 
@@ -267,7 +267,7 @@ def main():
         center_x = None
         center_y = None
         
-        if imagen == 88:
+        if imagen == 86: # 86 para acierto en tiro libre, 83 para fallo en tiro libre, 
             state['kalman_active'] = True
 
         # Realizar tracking en el frame
@@ -302,7 +302,7 @@ def main():
             
         # Dibujar puntos de referencia
         for i, point in enumerate(referencias_imagen):
-            cv.circle(frame, (int(point[0]), int(point[1])), 2, (0, 255, 0), -1)
+            cv.circle(frame, (int(point[0]), int(point[1])), 4, (0, 255, 0), -1)
         
         # Dibujar el aro
         for i in range(len(aro_2d) - 1):
@@ -322,8 +322,7 @@ def main():
             # Actualizar el filtro con o sin medición
             measurement = np.array([center_x, center_y]) if center_x is not None else None
             mu, P, pred = ukf(mu, P, f, Q, b, a, measurement, h, R)
-            print("-------------------")
-            print(f"mu - pred: {pred-measurement}")
+            print(f"mu: {mu}")
             
             # Guardar resultados
             res.append((mu, P))

@@ -117,19 +117,56 @@ def calcular_posicion_pelota(K, R, C, coords_imagen, profundidad):
     
     return posicion_mundo
 
+def estimar_velocidad_inicial(p0, pf, theta_deg=45):
+    """
+    Calcula vector velocidad inicial con módulo igual a distancia 3D
+    entre p0 y pf, y ángulo de tiro theta (altura en Z).
+    
+    p0, pf: posición inicial y final (x,y,z)
+    theta_deg: ángulo de tiro (por defecto 45º)
+    
+    Retorna:
+    vector velocidad inicial (vx, vy, vz)
+    """
+    x0, y0, z0 = p0
+    xf, yf, zf = pf
+
+    # Distancia 3D
+    distancia = np.linalg.norm(pf - p0) * 1.75
+    
+    theta = np.radians(theta_deg)
+    
+    # Vector horizontal XY normalizado
+    d_xy = np.array([xf - x0, yf - y0])
+    d_xy_norm = np.linalg.norm(d_xy)
+    if d_xy_norm == 0:
+        raise ValueError("La posición inicial y final son iguales en el plano horizontal XY.")
+    dir_xy = d_xy / d_xy_norm
+    
+    # Componentes horizontal y vertical de la velocidad
+    v_h = distancia * np.cos(theta)
+    v_z = distancia * np.sin(theta)
+    
+    # Componentes vx, vy en el plano horizontal
+    v_x, v_y = v_h * dir_xy
+    
+    return np.array([v_x, v_y, v_z])
 
 def main():
     
     # ---------------------- INICIALIZACIÓN -----------------------
     # Matriz de calibración
-    f_x = 1666
-    f_y = 1666
-    c_x = 960
-    c_y = 540
+           
+    data = np.load('calibracion_gran_angular.npz')
+
+    # Extraer los parámetros (ajusta los nombres a lo que hayas guardado)
+    K = data['mtx']  # o data['camera_matrix']
+    D_matrix = data['dist']  # o data['dist_coeff']
     
-    K = np.array([[f_x, 0, c_x], 
-                [0, f_y, c_y], 
-                [0, 0, 1]])
+    f_x = K[0, 0]
+    f_y = K[1, 1]
+    c_x = K[0, 2]
+    c_y = K[1, 2]
 
     # Coordenadas de referencia en la imagen (en píxeles)
     referencias_imagen = np.array([
@@ -189,6 +226,12 @@ def main():
     err, Me = pose(K, referencias_imagen, referencias_real)
     print(f"Error inicial: {err}")
     print(f"Matriz de transformación: \n{Me}")
+    
+    # Parámetros del aro
+    centro_x = 0
+    centro_y = 12.425
+    centro_z = 3.05
+    radio_aro = 0.225
 
     # Crear el aro y proyectar geometrías a 2D
     aro = crear_aro()
@@ -293,13 +336,12 @@ def main():
     imagen = 0
 
     # Abrir el video
-    video_path = "canasta_3D_acierto_triple.mp4"
+    video_path = "canasta_3D_acierto_tirolibre.mp4"
     cap = cv.VideoCapture(video_path)
     
     if not cap.isOpened():
         print("Error: No se pudo abrir el video")
         return
-
 
     # ---------------------- BUCLE PRINCIPAL -----------------------
     # Procesar el video frame por frame
@@ -336,18 +378,18 @@ def main():
                     # Dibujar un círculo en el centro de la detección
                     cv.circle(frame, (center_x, center_y), radius=5, color=(0, 0, 255), thickness=-1)
                     
-                    
-        if imagen == 65: # 85 para acierto en tiro libre, 83 para fallo en tiro libre, 65 para acierto en triple, 55 para fallo en triple
+        if imagen == 85: # 85 para acierto en tiro libre, 83 para fallo en tiro libre, 65 para acierto en triple, 55 para fallo en triple
             state['kalman_active'] = True
-            dim_imagen = max(x2 - x1, y2 - y1)
+            dim_imagen = max(x2 - x1, y2 - y1) / 1.25
             z_real = (f_x * d_real) / dim_imagen
             # Calcular la posición 3D de la pelota en el mundo
             posicion_real = calcular_posicion_pelota(K_Me, R_Me, C_Me, [center_x, center_y], z_real)
             print("Posición real de la pelota en el espacio 3D:", posicion_real)
+            velocidad_real = estimar_velocidad_inicial(posicion_real, np.array([centro_x, centro_y, centro_z]), 45)
+            print("Velocidades iniciales necesarias:", velocidad_real)
             mu[0:3] = posicion_real
+            mu[3:6] = velocidad_real
             
-            
-                    
         # Dibujar elementos en el frame
         # Dibujar el tablero
         for i in range(len(canasta_view_2D) - 1):

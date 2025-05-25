@@ -388,7 +388,7 @@ def main():
                     
         if imagen == 85: # 85 para acierto en tiro libre, 83 para fallo en tiro libre, 65 para acierto en triple, 55 para fallo en triple
             state['kalman_active'] = True
-            dim_imagen = max(x2 - x1, y2 - y1) / 1.25
+            dim_imagen = max(x2 - x1, y2 - y1) / 1.20
             z_real = (f_x * d_real) / dim_imagen
             # Calcular la posición 3D de la pelota en el mundo
             posicion_real = calcular_posicion_pelota(K_Me, R_Me, C_Me, [center_x, center_y], z_real)

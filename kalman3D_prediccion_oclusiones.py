@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 from ultralytics import YOLO
 from umucv.util import cameraOutline, putText
 from umucv.kalman import ukf
+from umucv.htrans import sepcam
 
 
 # ---------------------- FUNCIONES AUXILIARES -----------------------
@@ -40,7 +41,7 @@ def pose(K, image, model):
     return rms, M
 
 # Crear el aro
-def crear_aro(centro_x=-2.45, centro_y=-1.576, centro_z=3.05, radio=0.225, num_puntos=16):
+def crear_aro(centro_x=0, centro_y=12.425, centro_z=3.05, radio=0.225, num_puntos=16):
     """Crea puntos para representar un aro de baloncesto."""
     angulos = np.linspace(0, 2*np.pi, num_puntos, endpoint=False)
     x = centro_x + radio * np.cos(angulos)
@@ -54,14 +55,14 @@ def crear_aro(centro_x=-2.45, centro_y=-1.576, centro_z=3.05, radio=0.225, num_p
 # Simular múltiples trayectorias
 def simular_trayectorias(mu, P, num_parabolas=100, gravedad=-9.81, t=np.linspace(0, 1, 100)):
     # Generar trayectorias en un solo paso vectorizado
-    vx0 = np.random.normal(mu[3], np.sqrt(P[3, 3]), num_parabolas)  # Velocidades iniciales x
-    vy0 = np.random.normal(mu[4], np.sqrt(P[4, 4]), num_parabolas)  # Velocidades iniciales y
-    vz0 = np.random.normal(mu[5], np.sqrt(P[5, 5]), num_parabolas)  # Velocidades iniciales z
+    vx0 = np.random.normal(mu[3], np.sqrt(P[3, 3]/100), num_parabolas)  # Velocidades iniciales x
+    vy0 = np.random.normal(mu[4], np.sqrt(P[4, 4]/100), num_parabolas)  # Velocidades iniciales y
+    vz0 = np.random.normal(mu[5], np.sqrt(P[5, 5]/100), num_parabolas)  # Velocidades iniciales z
     
     # Simular trayectorias
     x_sim = mu[0] + vx0[:, None] * t  # Esto genera un array (num_parabolas, tiempo_sim)
-    y_sim = mu[1] + vy0[:, None] * t + 0.5 * gravedad * t**2  # Efecto de la gravedad
-    z_sim = mu[2] + vz0[:, None] * t  # Movimiento en Z (gravedad o velocidad inicial)
+    y_sim = mu[1] + vy0[:, None] * t  # Efecto de la gravedad
+    z_sim = mu[2] + vz0[:, None] * t + 0.5 * gravedad * t**2 # Movimiento en Z (gravedad o velocidad inicial)
     
     return x_sim, y_sim, z_sim
 
@@ -119,13 +120,87 @@ def setup_event_handlers(fig):
     fig.canvas.mpl_connect('key_press_event', on_press)
     return state, impresion
 
+def calcular_posicion_pelota(K, R, C, coords_imagen, profundidad):
+    """
+    Calcula la posición 3D de una pelota en coordenadas del mundo.
+    
+    Parámetros:
+    - K: Matriz de calibración intrínseca de la cámara (3x3)
+    - R: Matriz de rotación de la cámara (3x3)
+    - C: Centro de la cámara en coordenadas del mundo (vector 3x1)
+    - coords_imagen: Coordenadas de la pelota en la imagen [u, v]
+    - profundidad: Profundidad real de la pelota
+    
+    Retorna:
+    - Posición 3D de la pelota en coordenadas del mundo
+    """
+    # Convertir coordenadas de imagen a coordenadas homogéneas
+    u, v = coords_imagen
+    coords_homogeneas = np.array([u, v, 1])
+    
+    # Calcular coordenadas normalizadas usando la inversa de K
+    K_inv = np.linalg.inv(K)
+    coords_normalizadas = K_inv @ coords_homogeneas
+    
+    # Escalar el vector por la profundidad
+    direccion_camara = coords_normalizadas * profundidad
+    
+    # Convertir de coordenadas de la cámara a coordenadas del mundo
+    # Usando R transpuesta (R.T) porque necesitamos la transformación inversa
+    posicion_mundo = C + R.T @ direccion_camara
+    
+    return posicion_mundo
+
+def estimar_velocidad_inicial(p0, pf, theta_deg=45):
+    """
+    Calcula vector velocidad inicial con módulo igual a distancia 3D
+    entre p0 y pf, y ángulo de tiro theta (altura en Z).
+    
+    p0, pf: posición inicial y final (x,y,z)
+    theta_deg: ángulo de tiro (por defecto 45º)
+    
+    Retorna:
+    vector velocidad inicial (vx, vy, vz)
+    """
+    x0, y0, z0 = p0
+    xf, yf, zf = pf
+
+    # Distancia 3D
+    distancia = np.linalg.norm(pf - p0) * 1.75
+    
+    theta = np.radians(theta_deg)
+    
+    # Vector horizontal XY normalizado
+    d_xy = np.array([xf - x0, yf - y0])
+    d_xy_norm = np.linalg.norm(d_xy)
+    if d_xy_norm == 0:
+        raise ValueError("La posición inicial y final son iguales en el plano horizontal XY.")
+    dir_xy = d_xy / d_xy_norm
+    
+    # Componentes horizontal y vertical de la velocidad
+    v_h = distancia * np.cos(theta)
+    v_z = distancia * np.sin(theta)
+    
+    # Componentes vx, vy en el plano horizontal
+    v_x, v_y = v_h * dir_xy
+    
+    return np.array([v_x, v_y, v_z])
+
 def main():
     
     # ---------------------- INICIALIZACIÓN -----------------------
     # Matriz de calibración
-    K = np.array([[1666, 0, 969], 
-                [0, 1666, 544], 
-                [0, 0, 1]])
+           
+    data = np.load('calibracion_gran_angular.npz')
+
+    # Extraer los parámetros (ajusta los nombres a lo que hayas guardado)
+    K = data['mtx']  # o data['camera_matrix']
+    D_matrix = data['dist']  # o data['dist_coeff']
+    
+    f_x = K[0, 0]
+    f_y = K[1, 1]
+    c_x = K[0, 2]
+    c_y = K[1, 2]
 
     # Coordenadas de referencia en la imagen (en píxeles)
     referencias_imagen = np.array([
@@ -145,40 +220,40 @@ def main():
 
     # Puntos del modelo en 3D
     referencias_real = np.array([
-        [-3.35, -1.2, 3.95],
-        [-1.55, -1.2, 3.95],
-        [-1.55, -1.2, 2.9],
-        [-3.35, -1.2, 2.9],
-        [5.05, 0, 0],
-        [4.15, 0, 0],
-        [0, 0, 0],
-        [0, -5.8, 0],
-        [-4.9, -5.8, 0],
-        [-4.9, 0, 0],
-        [-2.45, -5.8, 0],
-        [-2.45, -7.6, 0]
+        [-0.9, 12.8, 3.95],
+        [0.9, 12.8, 3.95],
+        [0.9, 12.8, 2.9],
+        [-0.9, 12.8, 2.9],
+        [7.5, 14, 0],
+        [6.6, 14, 0],
+        [2.45, 14, 0],
+        [2.45, 8.2, 0],
+        [-2.45, 8.2, 0],
+        [-2.45, 14, 0],
+        [0, 8.2, 0],
+        [0, 6.4, 0]
     ], dtype='float32')
 
     # Definir geometrías de la cancha
     canasta = np.array([
-        [-3.35, -1.2, 3.95],
-        [-1.55, -1.2, 3.95], 
-        [-1.55, -1.2, 2.9],
-        [-3.35, -1.2, 2.9],
-        [-3.35, -1.2, 3.95]
+        [-0.9, 12.8, 3.95],
+        [0.9, 12.8, 3.95],
+        [0.9, 12.8, 2.9],
+        [-0.9, 12.8, 2.9],
+        [-0.9, 12.8, 3.95]
     ], dtype='float32')
 
-    fondo = np.array([
-        [5.05, 0, 0],
-        [-9.95, 0, 0]
+    campo = np.array([
+        [7.5, 14, 0],
+        [-7.5, 14, 0]
     ], dtype='float32')  
 
     cuadrado = np.array([
-        [0, 0, 0],
-        [0, -5.8, 0],
-        [-4.9, -5.8, 0],
-        [-4.9, 0, 0],
-        [0, 0, 0]
+        [2.45, 14, 0],
+        [2.45, 8.2, 0],
+        [-2.45, 8.2, 0],
+        [-2.45, 14, 0],
+        [2.45, 14, 0]
     ], dtype='float32')    
              
     # Calcular la pose solo al principio
@@ -187,8 +262,8 @@ def main():
     print(f"Matriz de transformación: \n{Me}")
     
     # Parámetros del aro
-    centro_x = -2.45
-    centro_y = -1.576
+    centro_x = 0
+    centro_y = 12.425
     centro_z = 3.05
     radio_aro = 0.225
 
@@ -196,11 +271,15 @@ def main():
     aro = crear_aro()
     canasta_view_2D = htrans(Me, canasta).astype(int)
     aro_2d = htrans(Me, aro).astype(int)
-    fondo_2d = htrans(Me, fondo).astype(int)
     cuadrado_2d = htrans(Me, cuadrado).astype(int)
 
     # Usar la matriz de transformación para obtener el contorno de la cámara
     camline = cameraOutline(Me)
+        
+    K_Me, R_Me, C_Me = sepcam(Me)
+    print(f"K: \n{K_Me}")
+    print(f"R: \n{R_Me}")
+    print(f"C: \n{C_Me}")
 
     # Configurar la figura de Matplotlib
     plt.ion()
@@ -223,7 +302,7 @@ def main():
     # Dibujar el escenario 3D inicial
     plot3(ax2, canasta, 'r')  # Tablero en rojo
     plot3(ax2, aro, 'orange')  # Aro en naranja
-    plot3(ax2, fondo, 'g')  # Fondo en verde
+    plot3(ax2, campo, 'g')  # Fondo en verde
     plot3(ax2, cuadrado, 'g')  # Cuadrado en verde
     plot3(ax2, camline, 'b')  # Línea de la cámara en azul
     set_axes_equal(ax2)  # Ajustar la escala de los ejes
@@ -236,7 +315,9 @@ def main():
     dt = 1/61.5
     t = np.arange(0, 2 + dt, dt)  # Vector de tiempo
     a = np.array([0, 0, -9.8])  # Aceleración (gravedad)
-
+    
+    d_real = 0.24 
+    
     # ---------------------- KALMAN -----------------------
     # Matriz de transición de estado F
     F = np.array([
@@ -272,12 +353,12 @@ def main():
         return 0
 
     # Estado inicial y covarianza
-    mu = np.array([-2.45, -5.8, 2, 0, 0, 0])  # Posición y velocidad inicial
-    P = np.diag([1, 1, 1, 8, 8, 8])**2  # Covarianza inicial
+    mu = np.array([0, 0, 0, 0, 0, 0])  # Posición y velocidad inicial [-2.45, -5.8, 2, 0, 4, 5] -> tiro libre
+    P = np.diag([1, 1, 1, 4, 4, 4])**2  # Covarianza inicial
 
     # Matrices de ruido
-    sigmaM = 0.0001  # Ruido del modelo
-    sigmaZ = 4       # Ruido de medición
+    sigmaM = 1e-15  # Ruido del modelo
+    sigmaZ = 40       # Ruido de medición
     Q = sigmaM**2 * np.eye(6)  # Covarianza del ruido del proceso
     R = sigmaZ**2 * np.eye(2)  # Covarianza del ruido de medición
 
@@ -287,14 +368,15 @@ def main():
     listCenterY = []
     listpuntos = []
     
-    # Probabilidad de omitir medición para simular oclusiones
-    probabilidad = 0.3
-    
     # Variables para el análisis de trayectorias
     calcular_probabilidad = True
-    max_probabilidad = 0
     probabilidad_mostrar = 0
     frame_counter = 0
+    
+    imagen = 0
+    
+    # Probabilidad de omitir medición para simular oclusiones
+    probabilidad = 0.5
 
     # Abrir el video
     video_path = "canasta_3D_acierto_tirolibre.mp4"
@@ -343,6 +425,19 @@ def main():
                     else:
                         # Dibujar un círculo en el centro de la detección
                         cv.circle(frame, (center_x, center_y), radius=5, color=(0, 0, 255), thickness=-1)
+         
+        if imagen == 85: # 85 para acierto en tiro libre, 83 para fallo en tiro libre, 65 para acierto en triple, 55 para fallo en triple
+            state['kalman_active'] = True
+            impresion['print'] = True
+            dim_imagen = max(x2 - x1, y2 - y1) / 1.20
+            z_real = (f_x * d_real) / dim_imagen
+            # Calcular la posición 3D de la pelota en el mundo
+            posicion_real = calcular_posicion_pelota(K_Me, R_Me, C_Me, [center_x, center_y], z_real)
+            print("Posición real de la pelota en el espacio 3D:", posicion_real)
+            velocidad_real = estimar_velocidad_inicial(posicion_real, np.array([centro_x, centro_y, centro_z]), 45)
+            print("Velocidades iniciales necesarias:", velocidad_real)
+            mu[0:3] = posicion_real
+            mu[3:6] = velocidad_real
                     
         # Dibujar elementos en el frame
         # Mostrar la probabilidad en el frame
@@ -360,10 +455,6 @@ def main():
         for i in range(len(aro_2d) - 1):
             cv.line(frame, tuple(aro_2d[i]), tuple(aro_2d[i + 1]), (0, 0, 255), 2)
             
-        # Dibujar el fondo y el cuadrado (pista)
-        for i in range(len(fondo_2d) - 1):
-            cv.line(frame, tuple(fondo_2d[i]), tuple(fondo_2d[i + 1]), (0, 255, 0), 2)
-        
         for i in range(len(cuadrado_2d) - 1):
             cv.line(frame, tuple(cuadrado_2d[i]), tuple(cuadrado_2d[i + 1]), (0, 255, 0), 2)
         
@@ -413,16 +504,10 @@ def main():
                 # Verificar intersecciones con el aro
                 trayectorias_intersectadas = verificar_interseccion(x_sim, y_sim, z_sim, aro, radio_aro)
                 
-                probabilidad = len(trayectorias_intersectadas) / num_parabolas
-                
-                # Actualizar el máximo si la nueva probabilidad es mayor
-                if probabilidad > max_probabilidad:
-                    max_probabilidad = probabilidad
-                    
-                probabilidad_mostrar = max_probabilidad
+                probabilidad_mostrar = len(trayectorias_intersectadas) / num_parabolas
                 
                 frame_counter += 1
-                
+            
             # Proyectar y dibujar puntos estimados de la trayectoria
             points3D = np.array(list(zip(xe, ye, ze)), dtype=np.float32)
             points2D = htrans(Me, points3D)
@@ -444,26 +529,30 @@ def main():
         # Redibujar el escenario 3D
         plot3(ax2, canasta, 'r')
         plot3(ax2, aro, 'orange')
-        plot3(ax2, fondo, 'g')
+        plot3(ax2, campo, 'g')
         plot3(ax2, cuadrado, 'g')
         plot3(ax2, camline, 'b')
         
         # Dibujar la trayectoria estimada si el filtro de Kalman está activo
         if impresion['print']:
-            if res:
-                mu_filtered = np.array([mu[:3] for mu, _ in res])
-                if len(mu_filtered) > 0:
-                    plot3(ax2, mu_filtered, 'g')
+            mu_filtered = np.array([mu[:3] for mu, _ in res])
+            if len(mu_filtered) > 0:
+                plot3(ax2, mu_filtered, 'g')
                 
             for i in range(num_parabolas):
                 color = 'cyan' if i in trayectorias_intersectadas else 'gray'
                 plot3(ax2, np.vstack((x_sim[i], y_sim[i], z_sim[i])).T, color)
                 
         set_axes_equal(ax2)
+        
+        # Mostrar la probabilidad en el frame
+        putText(frame, f"Prob. canasta: {probabilidad_mostrar:.2f}", orig=(1000, 1000), scale=5)
 
         # Redibujar la figura y procesar eventos
         fig.canvas.draw_idle()
         fig.canvas.start_event_loop(0.001)
+        
+        imagen += 1
 
         # Salir si se presiona Escape
         if state['fin']:

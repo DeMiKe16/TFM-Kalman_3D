@@ -322,8 +322,8 @@ def main():
     P = np.diag([1, 1, 1, 4, 4, 4])**2  # Covarianza inicial
 
     # Matrices de ruido
-    sigmaM = 1e-3  # Ruido del modelo
-    sigmaZ = 20       # Ruido de medición
+    sigmaM = 1e-15  # Ruido del modelo
+    sigmaZ = 50       # Ruido de medición
     Q = sigmaM**2 * np.eye(6)  # Covarianza del ruido del proceso
     R = sigmaZ**2 * np.eye(2)  # Covarianza del ruido de medición
 
@@ -336,7 +336,7 @@ def main():
     imagen = 0
 
     # Abrir el video
-    video_path = "canasta_3D_acierto_tirolibre.mp4"
+    video_path = "canasta_3D_acierto_triple.mp4"
     cap = cv.VideoCapture(video_path)
     
     if not cap.isOpened():
@@ -378,7 +378,7 @@ def main():
                     # Dibujar un círculo en el centro de la detección
                     cv.circle(frame, (center_x, center_y), radius=5, color=(0, 0, 255), thickness=-1)
                     
-        if imagen == 85: # 85 para acierto en tiro libre, 83 para fallo en tiro libre, 65 para acierto en triple, 55 para fallo en triple
+        if imagen == 65: # 85 para acierto en tiro libre, 83 para fallo en tiro libre, 65 para acierto en triple, 55 para fallo en triple
             state['kalman_active'] = True
             dim_imagen = max(x2 - x1, y2 - y1) / 1.25
             z_real = (f_x * d_real) / dim_imagen

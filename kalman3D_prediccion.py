@@ -67,21 +67,28 @@ def simular_trayectorias(mu, P, num_parabolas=100, gravedad=-9.81, t=np.linspace
     return x_sim, y_sim, z_sim
 
 # Verificar intersección con el aro
-def verificar_interseccion(x_sim, y_sim, z_sim, puntos_aro, radio_aro):
-    intersecciones = []
-    x_aro, y_aro, z_aro = puntos_aro[:, 0], puntos_aro[:, 1], puntos_aro[:, 2]
-    
-    for i in range(x_sim.shape[0]):  # Recorrer trayectorias
-        for j in range(x_sim.shape[1]):  # Recorrer puntos en el tiempo
-            distancia = np.sqrt(
-                (x_sim[i, j] - x_aro)**2 +
-                (y_sim[i, j] - y_aro)**2 +
-                (z_sim[i, j] - z_aro)**2
-            )
-            if np.any(distancia <= radio_aro):
-                intersecciones.append(i)
-                break
-    return intersecciones
+def verificar_interseccion(x_sim, y_sim, z_sim, centro_aro = np.array([0, 12.425]), radio_aro = 0.225, z_aro = 3.05):
+        intersecciones = []
+        x0, y0 = centro_aro
+
+        for i in range(x_sim.shape[0]):
+            for j in range(x_sim.shape[1] - 1):
+                z1, z2 = z_sim[i, j], z_sim[i, j+1]
+                
+                # Verificar si hay cruce del plano del aro (Z=z_aro)
+                if (z1 - z_aro) * (z2 - z_aro) < 0:
+                    # Interpolamos el punto de cruce con el plano Z = z_aro
+                    t = (z_aro - z1) / (z2 - z1)
+                    x_inter = x_sim[i, j] + t * (x_sim[i, j+1] - x_sim[i, j])
+                    y_inter = y_sim[i, j] + t * (y_sim[i, j+1] - y_sim[i, j])
+                    
+                    # Verificamos si ese punto cae dentro del círculo del aro
+                    distancia = np.sqrt((x_inter - x0)**2 + (y_inter - y0)**2)
+                    if distancia <= radio_aro:
+                        intersecciones.append(i)
+                        break
+                        
+        return intersecciones
 
 # Dibujar una polilínea en 3D
 def plot3(ax, c, color):
@@ -354,11 +361,11 @@ def main():
 
     # Estado inicial y covarianza
     mu = np.array([0, 0, 0, 0, 0, 0])  # Posición y velocidad inicial [-2.45, -5.8, 2, 0, 4, 5] -> tiro libre
-    P = np.diag([1, 1, 1, 4, 4, 4])**2  # Covarianza inicial
+    P = np.diag([1, 1, 1, 3, 3, 3])**2  # Covarianza inicial
 
     # Matrices de ruido
     sigmaM = 1e-15  # Ruido del modelo
-    sigmaZ = 40       # Ruido de medición
+    sigmaZ = 80       # Ruido de medición
     Q = sigmaM**2 * np.eye(6)  # Covarianza del ruido del proceso
     R = sigmaZ**2 * np.eye(2)  # Covarianza del ruido de medición
 
@@ -376,7 +383,7 @@ def main():
     imagen = 0
 
     # Abrir el video
-    video_path = "canasta_3D_fallo_tirolibre.mp4"
+    video_path = "canasta_3D_acierto_tirolibre.mp4"
     cap = cv.VideoCapture(video_path)
     
     if not cap.isOpened():
@@ -418,7 +425,7 @@ def main():
                     # Dibujar un círculo en el centro de la detección
                     cv.circle(frame, (center_x, center_y), radius=5, color=(0, 0, 255), thickness=-1)
          
-        if imagen == 83: # 85 para acierto en tiro libre, 83 para fallo en tiro libre, 65 para acierto en triple, 55 para fallo en triple
+        if imagen == 85: # 85 para acierto en tiro libre, 83 para fallo en tiro libre, 65 para acierto en triple, 55 para fallo en triple
             state['kalman_active'] = True
             impresion['print'] = True
             dim_imagen = max(x2 - x1, y2 - y1) / 1.20
@@ -494,7 +501,7 @@ def main():
                 x_sim, y_sim, z_sim = simular_trayectorias(mu, P, num_parabolas, t=t_recortado)
                 
                 # Verificar intersecciones con el aro
-                trayectorias_intersectadas = verificar_interseccion(x_sim, y_sim, z_sim, aro, radio_aro)
+                trayectorias_intersectadas = verificar_interseccion(x_sim, y_sim, z_sim)
                 
                 probabilidad = len(trayectorias_intersectadas) / num_parabolas
                     

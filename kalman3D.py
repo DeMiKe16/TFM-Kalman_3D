@@ -461,6 +461,7 @@ def main():
         plot3(ax2, campo, 'g')
         plot3(ax2, cuadrado, 'g')
         plot3(ax2, camline, 'b')
+        ax2.plot([mu[0], mu[0]], [mu[1], mu[1]], [mu[2], 0], linestyle='--', color='black')
         
         # Dibujar la trayectoria estimada si el filtro de Kalman está activo
         if state['kalman_active'] and res:

@@ -67,28 +67,58 @@ def simular_trayectorias(mu, P, num_parabolas=100, gravedad=-9.81, t=np.linspace
     return x_sim, y_sim, z_sim
 
 # Verificar intersección con el aro
-def verificar_interseccion(x_sim, y_sim, z_sim, centro_aro = np.array([0, 12.425]), radio_aro = 0.225, z_aro = 3.05):
-        intersecciones = []
-        x0, y0 = centro_aro
+def verificar_interseccion(x_sim, y_sim, z_sim, centro_aro=np.array([0, 12.425]), radio_aro=0.225, z_aro=3.05):
+    intersecciones = []
+    x0, y0 = centro_aro
 
-        for i in range(x_sim.shape[0]):
-            for j in range(x_sim.shape[1] - 1):
-                z1, z2 = z_sim[i, j], z_sim[i, j+1]
-                
-                # Verificar si hay cruce del plano del aro (Z=z_aro)
-                if (z1 - z_aro) * (z2 - z_aro) < 0:
-                    # Interpolamos el punto de cruce con el plano Z = z_aro
-                    t = (z_aro - z1) / (z2 - z1)
-                    x_inter = x_sim[i, j] + t * (x_sim[i, j+1] - x_sim[i, j])
-                    y_inter = y_sim[i, j] + t * (y_sim[i, j+1] - y_sim[i, j])
-                    
-                    # Verificamos si ese punto cae dentro del círculo del aro
-                    distancia = np.sqrt((x_inter - x0)**2 + (y_inter - y0)**2)
-                    if distancia <= radio_aro:
-                        intersecciones.append(i)
-                        break
-                        
-        return intersecciones
+    # Copias truncadas
+    x_sim_trunc = []
+    y_sim_trunc = []
+    z_sim_trunc = []
+
+    for i in range(x_sim.shape[0]):
+        x_traj = []
+        y_traj = []
+        z_traj = []
+
+        interseccion_encontrada = False
+
+        for j in range(x_sim.shape[1] - 1):
+            z1, z2 = z_sim[i, j], z_sim[i, j + 1]
+            x1, x2 = x_sim[i, j], x_sim[i, j + 1]
+            y1, y2 = y_sim[i, j], y_sim[i, j + 1]
+
+            x_traj.append(x1)
+            y_traj.append(y1)
+            z_traj.append(z1)
+
+            # Verificar cruce descendente del plano z_aro
+            if z1 > z_aro and z2 < z_aro:
+                t = (z_aro - z1) / (z2 - z1)
+                x_inter = x1 + t * (x2 - x1)
+                y_inter = y1 + t * (y2 - y1)
+
+                x_traj.append(x_inter)
+                y_traj.append(y_inter)
+                z_traj.append(z_aro)
+
+                distancia = np.sqrt((x_inter - x0)**2 + (y_inter - y0)**2)
+                if distancia <= radio_aro:
+                    intersecciones.append(i)
+
+                break  # Cortamos en la bajada
+
+        x_sim_trunc.append(x_traj)
+        y_sim_trunc.append(y_traj)
+        z_sim_trunc.append(z_traj)
+
+    # Convertimos a arrays con padding NaN para mantener formato matricial si es necesario
+    max_len = max(len(traj) for traj in x_sim_trunc)
+    x_sim_trunc = np.array([traj + [np.nan] * (max_len - len(traj)) for traj in x_sim_trunc])
+    y_sim_trunc = np.array([traj + [np.nan] * (max_len - len(traj)) for traj in y_sim_trunc])
+    z_sim_trunc = np.array([traj + [np.nan] * (max_len - len(traj)) for traj in z_sim_trunc])
+
+    return intersecciones, x_sim_trunc, y_sim_trunc, z_sim_trunc
 
 # Dibujar una polilínea en 3D
 def plot3(ax, c, color):
@@ -321,7 +351,7 @@ def main():
     fps = 62  # 63 para triple 
     dt = 1/61.5
     t = np.arange(0, 2 + dt, dt)  # Vector de tiempo
-    a = np.array([0, 0, -9.8])  # Aceleración (gravedad)
+    a = np.array([0, 0, -9.81])  # Aceleración (gravedad)
     
     d_real = 0.24 
     
@@ -361,11 +391,11 @@ def main():
 
     # Estado inicial y covarianza
     mu = np.array([0, 0, 0, 0, 0, 0])  # Posición y velocidad inicial [-2.45, -5.8, 2, 0, 4, 5] -> tiro libre
-    P = np.diag([1, 1, 1, 3, 3, 3])**2  # Covarianza inicial
+    P = np.diag([1, 1, 1, 2, 2, 2])**2  # Covarianza inicial
 
     # Matrices de ruido
-    sigmaM = 1e-15  # Ruido del modelo
-    sigmaZ = 80       # Ruido de medición
+    sigmaM = 1e-5  # Ruido del modelo
+    sigmaZ = 30      # Ruido de medición
     Q = sigmaM**2 * np.eye(6)  # Covarianza del ruido del proceso
     R = sigmaZ**2 * np.eye(2)  # Covarianza del ruido de medición
 
@@ -383,7 +413,7 @@ def main():
     imagen = 0
 
     # Abrir el video
-    video_path = "canasta_3D_acierto_tirolibre.mp4"
+    video_path = "canasta_3D_acierto_triple.mp4"
     cap = cv.VideoCapture(video_path)
     
     if not cap.isOpened():
@@ -425,7 +455,7 @@ def main():
                     # Dibujar un círculo en el centro de la detección
                     cv.circle(frame, (center_x, center_y), radius=5, color=(0, 0, 255), thickness=-1)
          
-        if imagen == 85: # 85 para acierto en tiro libre, 83 para fallo en tiro libre, 65 para acierto en triple, 55 para fallo en triple
+        if imagen == 65: # 85 para acierto en tiro libre, 83 para fallo en tiro libre, 65 para acierto en triple, 55 para fallo en triple
             state['kalman_active'] = True
             impresion['print'] = True
             dim_imagen = max(x2 - x1, y2 - y1) / 1.20
@@ -501,7 +531,7 @@ def main():
                 x_sim, y_sim, z_sim = simular_trayectorias(mu, P, num_parabolas, t=t_recortado)
                 
                 # Verificar intersecciones con el aro
-                trayectorias_intersectadas = verificar_interseccion(x_sim, y_sim, z_sim)
+                trayectorias_intersectadas, x_sim, y_sim, z_sim = verificar_interseccion(x_sim, y_sim, z_sim)
                 
                 probabilidad = len(trayectorias_intersectadas) / num_parabolas
                     
@@ -533,6 +563,7 @@ def main():
         plot3(ax2, campo, 'g')
         plot3(ax2, cuadrado, 'g')
         plot3(ax2, camline, 'b')
+        ax2.plot([mu[0], mu[0]], [mu[1], mu[1]], [mu[2], 0], linestyle='--', color='black')
         
         # Dibujar la trayectoria estimada si el filtro de Kalman está activo
         if impresion['print']:
